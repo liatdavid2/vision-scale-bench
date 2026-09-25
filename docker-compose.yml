@@ -17,7 +17,7 @@ services:
       - ./:/workspace
       - kube-cache:/root/.kube
     ports:
-      - "8000:8000"
+      - "7474:8000"
     restart: unless-stopped
 
   frontend:
@@ -28,7 +28,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "3000:80"
+      - "7475:80"
     restart: unless-stopped
 
 volumes:
