@@ -1,35 +1,13 @@
-# Real UI — React + FastAPI + Docker Compose
+# UI
 
-This project does **not** use Streamlit.
+Real React + FastAPI UI; no Streamlit.
 
-- `frontend/`: React + Vite, served by Nginx
-- `backend/`: FastAPI orchestration API
-- Nginx proxies `/api/*` to the backend
-- `POST /api/run/eks`: runs 2 workers, then 4 workers on EKS
-- `POST /api/run/sagemaker`: runs 2 instances, then 4 SageMaker instances
-- `GET /api/jobs/{id}`: status + live logs
-- `GET /api/results`: benchmark JSON results
+Run locally with Docker Compose from the repository root:
 
-## Start the UI
-
-If AWS credentials are stored in environment variables, they are passed into the backend container automatically. Otherwise copy `.env.example` to `.env` and fill the credentials locally.
-
-```bash
+```cmd
 docker compose up --build
 ```
 
-Open:
+Open `http://localhost:7475`. FastAPI Swagger is at `http://localhost:7474/docs`.
 
-```text
-http://localhost:3000
-```
-
-The frontend is exposed on port 3000. FastAPI is also available directly on port 8000 for debugging.
-
-## Stop the local UI
-
-```bash
-docker compose down
-```
-
-`docker compose down` only stops the **local UI containers**. It does not destroy AWS infrastructure. Use the project's destroy script / Terraform teardown for AWS resources.
+The EKS button runs 2 -> 4 NVIDIA T4 GPU workers and automatically scales GPU workers to zero afterward. The SageMaker button runs 2 -> 4 `ml.g4dn.xlarge` Managed Spot Training instances.

@@ -28,10 +28,10 @@ def main():
         f"--master-addr={master}",
         f"--master-port={env['MASTER_PORT']}",
         "-m", "training.train",
-        "--epochs", env.get("EPOCHS", "2"),
+        "--epochs", env.get("EPOCHS", "1"),
         "--batch-size", env.get("BATCH_SIZE", "64"),
-        "--max-train-samples", env.get("MAX_TRAIN_SAMPLES", "8000"),
-        "--max-test-samples", env.get("MAX_TEST_SAMPLES", "2000"),
+        "--max-train-samples", env.get("MAX_TRAIN_SAMPLES", "5000"),
+        "--max-test-samples", env.get("MAX_TEST_SAMPLES", "1000"),
         "--data-dir", env.get("DATA_DIR", "/data"),
         "--platform", env.get("PLATFORM", "unknown"),
     ]

@@ -1,7 +1,9 @@
 apiVersion: s3.aws.upbound.io/v1beta1
 kind: Bucket
 metadata:
-  generateName: vision-scale-bench-results-
+  name: vision-scale-bench-results
+  annotations:
+    crossplane.io/external-name: vision-scale-bench-results-ACCOUNT_ID
 spec:
   deletionPolicy: Delete
   forProvider:

@@ -4,17 +4,19 @@ image:
   pullPolicy: Always
 trainer:
   replicas: 2
-  epochs: 2
-  batchSize: 64
-  maxTrainSamples: 8000
-  maxTestSamples: 2000
+  epochs: 1
+  batchSize: 128
+  maxTrainSamples: 5000
+  maxTestSamples: 1000
   masterPort: 29500
   nodeSelector:
     workload: vision-bench
   resources:
     requests:
       cpu: "1500m"
-      memory: "2500Mi"
+      memory: "3Gi"
+      nvidia.com/gpu: "1"
     limits:
-      cpu: "1800m"
-      memory: "3500Mi"
+      cpu: "3500m"
+      memory: "12Gi"
+      nvidia.com/gpu: "1"

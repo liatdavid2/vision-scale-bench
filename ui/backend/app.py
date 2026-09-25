@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import subprocess
 import threading
 import time
@@ -23,14 +22,14 @@ RESULTS.mkdir(exist_ok=True)
 app = FastAPI(title="Vision Scale Bench API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8000"],
+    allow_origins=["http://localhost:7475", "http://127.0.0.1:7475", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:7474"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 class RunRequest(BaseModel):
-    profile: str = "budget"
+    profile: str = "gpu"
 
 class Job:
     def __init__(self, platform_name: str):
@@ -59,17 +58,17 @@ jobs: Dict[str, Job] = {}
 lock = threading.Lock()
 
 
-def _cmd_for(platform_name: str) -> List[str]:
-    is_windows = platform.system().lower().startswith("win")
-    if platform_name == "eks":
-        if is_windows:
-            return ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "scripts" / "run-eks-benchmark.ps1")]
+def _cmd_for(operation_name: str) -> List[str]:
+    # The backend runs in a Linux Docker container even when the host is Windows CMD.
+    if operation_name == "setup":
+        return ["bash", str(ROOT / "scripts" / "setup.sh")]
+    if operation_name == "destroy":
+        return ["bash", str(ROOT / "scripts" / "destroy.sh")]
+    if operation_name == "eks":
         return ["bash", str(ROOT / "scripts" / "run-eks-benchmark.sh")]
-    if platform_name == "sagemaker":
-        if is_windows:
-            return ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "scripts" / "run-sagemaker-benchmark.ps1")]
+    if operation_name == "sagemaker":
         return ["python", str(ROOT / "scripts" / "run_sagemaker_benchmark.py"), "--all"]
-    raise ValueError(platform_name)
+    raise ValueError(operation_name)
 
 
 def _run_job(job: Job):
@@ -119,15 +118,27 @@ def _load_results():
 def health():
     return {"ok": True, "project": "vision-scale-bench"}
 
+@app.post("/api/infrastructure/{action}")
+def run_infrastructure_action(action: str):
+    if action not in {"setup", "destroy"}:
+        raise HTTPException(404, "Unknown infrastructure action")
+    with lock:
+        if any(j.status in {"queued", "running"} for j in jobs.values()):
+            raise HTTPException(409, "Another operation is already running")
+        job = Job(action)
+        jobs[job.id] = job
+    threading.Thread(target=_run_job, args=(job,), daemon=True).start()
+    return job.as_dict()
+
 @app.post("/api/run/{platform_name}")
 def run_benchmark(platform_name: str, request: RunRequest):
     if platform_name not in {"eks", "sagemaker"}:
         raise HTTPException(404, "Unknown platform")
-    if request.profile != "budget":
-        raise HTTPException(400, "Only the budget profile is enabled in this demo")
+    if request.profile != "gpu":
+        raise HTTPException(400, "This project is GPU-only; use the gpu profile")
     with lock:
         if any(j.status in {"queued", "running"} for j in jobs.values()):
-            raise HTTPException(409, "Another benchmark is already running")
+            raise HTTPException(409, "Another operation is already running")
         job = Job(platform_name)
         jobs[job.id] = job
     threading.Thread(target=_run_job, args=(job,), daemon=True).start()

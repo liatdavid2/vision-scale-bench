@@ -12,8 +12,10 @@ for i in $(seq 1 60); do
   sleep 5
 done
 kubectl apply -f crossplane/providerconfig.yaml
-kubectl apply -f crossplane/resources/
-echo "Waiting for ECR repository..."
+kubectl apply -f crossplane/resources/ecr.yaml
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+sed "s/ACCOUNT_ID/${ACCOUNT_ID}/g" crossplane/resources/s3.yaml | kubectl apply -f -
+echo "Waiting for ECR repository and S3 bucket..."
 for i in $(seq 1 60); do
   R=$(kubectl get repository.ecr.aws.upbound.io vision-scale-bench -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
   [ "$R" = "True" ] && break
@@ -21,3 +23,8 @@ for i in $(seq 1 60); do
 done
 kubectl get providers
 kubectl get repositories.ecr.aws.upbound.io,buckets.s3.aws.upbound.io
+# Persist the Crossplane-created resource names so SageMaker can run even while EKS GPU nodes are scaled to zero.
+BUCKET=$(kubectl get bucket.s3.aws.upbound.io vision-scale-bench-results -o jsonpath='{.metadata.annotations.crossplane\.io/external-name}' 2>/dev/null || true)
+REPO_NAME=$(kubectl get repository.ecr.aws.upbound.io vision-scale-bench -o jsonpath='{.metadata.annotations.crossplane\.io/external-name}' 2>/dev/null || true)
+[ -n "$BUCKET" ] && echo "$BUCKET" > .s3_bucket
+[ -n "$REPO_NAME" ] && echo "$REPO_NAME" > .ecr_repo_name

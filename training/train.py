@@ -16,10 +16,10 @@ from torchvision import datasets, models, transforms
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--epochs", type=int, default=2)
+    p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--batch-size", type=int, default=64)
-    p.add_argument("--max-train-samples", type=int, default=8000)
-    p.add_argument("--max-test-samples", type=int, default=2000)
+    p.add_argument("--max-train-samples", type=int, default=5000)
+    p.add_argument("--max-test-samples", type=int, default=1000)
     p.add_argument("--data-dir", default="/data")
     p.add_argument("--platform", default="unknown")
     return p.parse_args()

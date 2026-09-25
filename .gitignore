@@ -10,3 +10,6 @@ results/*.json
 .env
 ui/frontend/node_modules/
 ui/frontend/dist/
+.s3_bucket
+.ecr_repo
+.ecr_repo_name

@@ -1,263 +1,244 @@
 # Vision Scale Bench
 
-A deliberately small, low-cost benchmark for **distributed computer-vision training on AWS**.
-It runs the same PyTorch workload on:
+A deliberately short **GPU-only distributed computer-vision benchmark on AWS**. The same PyTorch/CUDA training image is executed through two AWS paths and scaled from **2 GPUs to 4 GPUs**:
 
-- **Amazon EKS / Kubernetes** with **2 and 4 worker nodes**
-- **Amazon SageMaker Training** with **2 and 4 training instances**
-- **Helm** to package/deploy the Kubernetes training workload
-- **Crossplane** to declaratively provision shared AWS resources (S3 + ECR)
-- **Terraform** only for the bootstrap layer that must exist before Crossplane can run (VPC, EKS, node group, IAM)
+- **Amazon EKS / Kubernetes:** 2 → 4 `g4dn.xlarge` Spot nodes, one NVIDIA T4 per node.
+- **Amazon SageMaker Training:** 2 → 4 `ml.g4dn.xlarge` instances using Managed Spot Training.
 
-The benchmark is intentionally short: **CIFAR-10 + ResNet-18, small subset, 2 epochs**. The goal is not SOTA accuracy; it is to measure orchestration overhead, distributed scaling, throughput, training time and cost.
+The workload is intentionally small so a portfolio/demo run can finish quickly and target roughly **$1 or less for both benchmark buttons together**. That is a target, not a billing guarantee: Spot prices, provisioning time, quotas and AWS pricing can change.
 
-## Suggested GitHub repository name
+## Benchmark workload
 
-**`vision-scale-bench`**
+- Dataset: **CIFAR-10**, downloaded automatically by Torchvision when missing.
+- Model: **ResNet-18**, adapted to 32×32 CIFAR images.
+- Train subset: **5,000 images**.
+- Test subset: **1,000 images**.
+- Epochs: **1** by default.
+- Batch size: **128 per GPU**.
+- Distributed engine: **PyTorch DDP / torchrun**, NCCL on GPU.
 
-Other good names: `distributed-vision-aws-benchmark`, `eks-sagemaker-vision-bench`, `vision-training-scale-lab`.
+This is a scaling/cost experiment, not an accuracy benchmark. A tiny workload may even show that 4 GPUs are less efficient than 2 because synchronization and startup overhead dominate; that is a valid benchmark result.
 
-## What is compared
+## What the two UI buttons do
 
-| Platform | Size | Training |
-|---|---:|---|
-| EKS | 2 workers | PyTorch DDP / `torchrun` |
-| EKS | 4 workers | PyTorch DDP / `torchrun` |
-| SageMaker | 2 instances | PyTorch DDP / `torchrun` |
-| SageMaker | 4 instances | PyTorch DDP / `torchrun` |
+### Run EKS / Kubernetes GPU Benchmark
 
-Metrics written by the training code:
+1. Scale the EKS managed node group to **2 × `g4dn.xlarge` Spot** nodes.
+2. Install/use the NVIDIA Kubernetes device plugin.
+3. Deploy the Helm training workload with **2 DDP workers / 2 T4 GPUs**.
+4. Save time, throughput, accuracy and estimated cost.
+5. Scale to **4 GPU nodes**, repeat the exact same workload with **4 DDP workers / 4 T4 GPUs**.
+6. Save the comparison.
+7. **Automatically scale the GPU node group to 0**, including on failure, so GPU compute does not remain running.
 
-- wall-clock training seconds
-- images / second
-- epoch time
-- validation accuracy
-- worker count
-- backend (`gloo` for CPU, `nccl` for GPU)
-- samples processed
+The EKS control plane remains until `scripts\destroy.cmd` so the project can continue to use the bootstrapped AWS environment. The control plane has its own AWS charge even while GPU worker count is zero, so destroy the demo when finished.
 
-The orchestration scripts additionally record infrastructure/job time and estimated compute cost.
+### Run SageMaker GPU Benchmark
 
-## Cost target: about $1 or less for a short demo
+1. Start a SageMaker Managed Spot Training job with **2 × `ml.g4dn.xlarge`**.
+2. Run the same PyTorch DDP image and workload.
+3. Save metrics and artifact to the Crossplane-created S3 bucket.
+4. Repeat with **4 × `ml.g4dn.xlarge`**.
+5. SageMaker training compute stops when each job ends.
 
-The default **budget** profile uses CPU Spot workers on EKS and small on-demand SageMaker CPU instances, with only a few thousand CIFAR-10 images and 2 epochs. It avoids the expensive AWS items that usually ruin tiny demos:
+A hard runtime/wait cap is configured to prevent an accidental long-running job.
 
-- **no NAT Gateway**
-- **no load balancer**
-- **no always-on endpoint**
-- **no RDS / OpenSearch / managed Prometheus**
-- EKS and workers are destroyed after the benchmark
+## What each technology does
 
-The EKS control plane itself is billed per cluster-hour, and worker EC2, EBS and public IPv4 are separate. SageMaker training is billed for the training instances while the job runs. Therefore **$1 is a target, not a guarantee**: startup time, Spot availability, Region and price changes matter. The scripts use hard runtime caps and print estimated cost from measured duration.
+**PyTorch DDP** — the distributed training engine. Every GPU process trains on a different shard of the batch and synchronizes gradients with the other workers. Both EKS and SageMaker use the same DDP code, making the comparison meaningful.
 
-> Important: do **not** create 2 or 4 separate EKS clusters for this benchmark. One EKS cluster with **2 vs 4 worker nodes** measures distributed training scaling. Multiple independent clusters mainly measure multi-cluster operations and add control-plane cost.
+**EKS / Kubernetes** — the self-managed orchestration path. Kubernetes schedules one training pod per GPU node. We compare 2 versus 4 T4 GPUs and measure the scaling benefit and orchestration overhead.
 
-## Automatic dataset download
+**SageMaker Training** — the managed AWS alternative. It runs the same container with 2 and then 4 GPU instances. Managed Spot is enabled to reduce demo cost.
 
-Yes. `training/train.py` uses `torchvision.datasets.CIFAR10(download=True)`. If `/data/cifar-10-batches-py` already exists, Torchvision reuses it; otherwise the dataset is downloaded automatically. Each training node keeps its own small local cache, which avoids shared-filesystem complexity for a ~170 MB dataset.
+**Helm Chart** — packages the Kubernetes training workload. Helm values control replica count, image, epochs, sample count, GPU request/limit and DDP service discovery.
+
+**Crossplane** — runs in Kubernetes and creates the shared AWS **S3 bucket and ECR repository** declaratively from YAML resources.
+
+**Terraform** — bootstraps what must exist before Crossplane: **VPC, EKS, the GPU node group, IAM/IRSA roles and SageMaker execution role**. It is also the final teardown mechanism.
 
 ## Architecture
 
 ```text
-                         +-------------------+
-                         |   CIFAR-10        |
-                         | auto-download     |
-                         +---------+---------+
-                                   |
-                   same Docker image / same code
-                                   |
-                 +-----------------+-----------------+
-                 |                                   |
-        +--------v---------+                +--------v----------+
-        | Amazon EKS       |                | SageMaker Training|
-        | Kubernetes       |                |                   |
-        +--------+---------+                +---------+---------+
-                 |                                    |
-        +--------+--------+                  +--------+--------+
-        | 2 workers       |                  | 2 instances     |
-        | 4 workers       |                  | 4 instances     |
-        +--------+--------+                  +--------+--------+
-                 |                                    |
-                 +---------------+--------------------+
-                                 |
-                       results/*.json
-                                 |
-                       React + FastAPI UI
+                        CIFAR-10
+                    auto-download if absent
+                            |
+                 same CUDA/PyTorch image
+                            |
+             +--------------+--------------+
+             |                             |
+      EKS / Kubernetes              SageMaker Training
+             |                             |
+      2 T4 -> 4 T4 GPUs             2 T4 -> 4 T4 GPUs
+      Spot g4dn.xlarge              Managed Spot
+             |                             |
+             +--------------+--------------+
+                            |
+                     results/*.json
+                            |
+                    React + FastAPI UI
 
-Bootstrap: Terraform -> EKS
-Platform packages: Helm -> Crossplane + benchmark chart
-Cloud resources: Crossplane -> ECR + S3
+Terraform  -> VPC + EKS + IAM bootstrap
+Helm       -> Crossplane + DDP workload
+Crossplane -> S3 + ECR
 ```
 
-## Prerequisites
+## Local UI — Docker Compose
 
-- AWS CLI authenticated
-- Terraform >= 1.6
-- Docker
-- kubectl
-- Helm 3
-- Python 3.10+
-- AWS quota allowing 4 small EC2 workers and 4 SageMaker training instances
+The local application is a real **React + Nginx frontend** and **FastAPI backend**. Streamlit is not used.
 
-Default region: `eu-central-1`. The Terraform bootstrap pins EKS Kubernetes **1.36**, which is currently in standard support.
+Ports used by this repository:
 
-## Local UI with Docker Compose
+- UI: `http://localhost:7475`
+- Backend/Swagger: `http://localhost:7474/docs`
 
-The normal local startup path is Docker Compose. It starts two containers:
+Start from Windows **CMD**:
 
-- `frontend` — React build served by Nginx on `http://localhost:3000`
-- `backend` — FastAPI plus AWS CLI, Terraform, kubectl and Helm on port `8000`
-
-First bootstrap the temporary AWS infrastructure and install Crossplane / push the training image once (see the setup scripts below). Then start the UI:
-
-```powershell
+```cmd
 docker compose up --build
 ```
 
-Open **http://localhost:3000**. Nginx proxies `/api` to FastAPI, and the two UI buttons launch the real benchmark orchestration.
+Health check:
 
-Stop only the local UI:
+```cmd
+curl http://localhost:7474/api/health
+curl http://localhost:7475/api/health
+```
 
-```powershell
+Both should return:
+
+```json
+{"ok":true,"project":"vision-scale-bench"}
+```
+
+Stop only the local containers:
+
+```cmd
 docker compose down
 ```
 
-To destroy the AWS resources after the demo:
+## AWS credentials and Docker safety
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\destroy.ps1
-```
-
-### One-time AWS bootstrap (PowerShell)
-
-```powershell
-cd infra\terraform
-terraform init
-terraform apply -auto-approve -var="worker_count=2"
-cd ..\..
-
-powershell -ExecutionPolicy Bypass -File .\scripts\install-crossplane.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\build-push-image.ps1
-```
-
-The backend refreshes its own EKS kubeconfig using `aws eks update-kubeconfig`, so Docker Compose does not depend on your host kubeconfig. AWS credentials can be passed from shell environment variables or from a local `.env` copied from `.env.example`. Never commit real credentials.
-
-## Real UI: React + FastAPI + Docker Compose
-
-The project includes a real web application under `ui/`; **Streamlit is not used**.
-
-The home page has two independent run buttons:
-
-- **Run EKS / Kubernetes benchmark** — run with 2 workers, then 4 workers.
-- **Run SageMaker benchmark** — run with 2 training instances, then 4 training instances.
-
-While a benchmark runs, the UI shows status and live orchestration logs. Completed runs are loaded from `results/*.json` and displayed with training time, images/second, validation accuracy, end-to-end job time, and estimated compute cost.
-
-The backend intentionally binds to `127.0.0.1`: its run endpoints execute local Terraform, Helm, kubectl, AWS CLI and SageMaker orchestration commands, so it should not be exposed publicly without authentication.
-
-### What each part of the project does
-
-**PyTorch DDP** — the distributed-training engine. Each worker processes a different portion of each training step and DDP synchronizes model gradients across the workers. It is the common training mechanism in both benchmark paths.
-
-**EKS / Kubernetes** — the Kubernetes execution path. The benchmark runs the DDP training workload with 2 workers and then with 4 workers, measuring scale-out performance, orchestration overhead and estimated cost.
-
-**SageMaker Training — 2 vs 4 instances** — the managed AWS comparison path. SageMaker runs the same training container with 2 and then 4 instances and shuts down the training compute after each job completes.
-
-**Helm Chart** — packages the Kubernetes training workload. Helm values control the Docker image, 2/4 worker replicas, epochs, dataset subset size and DDP service discovery.
-
-**Crossplane** — manages shared AWS resources from Kubernetes YAML. In this project it provisions the S3 bucket for artifacts/results and the ECR repository for the training image.
-
-**Terraform** — bootstraps the infrastructure that must exist before Crossplane can run: VPC, EKS, worker node group and IAM/IRSA roles. It also provides the final infrastructure teardown path.
-
-## What Crossplane does
-
-Crossplane is installed into EKS using its official Helm repository. AWS providers are installed for S3 and ECR. The AWS provider authenticates using **IRSA**, so static AWS keys are not stored inside Kubernetes.
-
-Crossplane resources in `crossplane/resources/` create:
-
-- ECR repository for the training image
-- small S3 results/artifact bucket
-
-Terraform creates the Crossplane IRSA role because this role must exist before the AWS Crossplane providers can authenticate. This is the normal bootstrap boundary: Crossplane cannot provision the Kubernetes cluster in which it has not yet been installed.
-
-## Helm
-
-`charts/vision-benchmark` deploys a headless Service + StatefulSet. StatefulSet pod ordinals become DDP node ranks:
+Copy `.env.example` to `.env` and fill your local credentials if they are not already supplied another way:
 
 ```text
-vision-trainer-0 -> rank 0 (master)
-vision-trainer-1 -> rank 1
-vision-trainer-2 -> rank 2
-vision-trainer-3 -> rank 3
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_SESSION_TOKEN=
+AWS_DEFAULT_REGION=eu-central-1
 ```
 
-Hard pod anti-affinity spreads replicas across worker nodes, so 2 replicas means 2 nodes and 4 replicas means 4 nodes.
+For a normal IAM access key, `AWS_SESSION_TOKEN` can remain empty.
 
-## Budget profile
+`.env` is excluded by both `.gitignore` **and `.dockerignore`**. The backend image does not bake the secret file into the image. Docker Compose passes only the configured AWS environment variables to the backend container at runtime. Never commit `.env`.
 
-Defaults are intentionally small:
+Check Git ignores it:
+
+```cmd
+git check-ignore -v .env
+```
+
+## One-time AWS setup
+
+First keep Docker Compose running. Then from a second CMD window run:
+
+```cmd
+scripts\setup.cmd
+```
+
+The setup performs:
+
+1. `terraform init`
+2. creates the EKS bootstrap with **one temporary `g4dn.xlarge` GPU Spot node**
+3. installs Crossplane via Helm
+4. Crossplane creates S3 + ECR
+5. builds/pushes the CUDA/PyTorch training image
+6. scales the temporary GPU node group back to **0**
+
+The temporary one-node bootstrap keeps setup cost lower than bootstrapping with 2 or 4 nodes.
+
+> `docker-compose.yml` mounts the local Docker socket into the backend container so the setup script can build/push the training image. This is intended for local development only; access to the Docker socket is privileged and should not be exposed to untrusted code.
+
+## Run the experiments
+
+Open:
 
 ```text
-Dataset       CIFAR-10
-Model         ResNet-18
-Train subset  8,000 images
-Test subset   2,000 images
-Epochs        2
-Batch/worker  64
-EKS compute   c6a.large Spot (fallback families configured)
-SageMaker     ml.c5.xlarge on-demand
-Runs          2 workers, then 4 workers
+http://localhost:7475
 ```
 
-For an even cheaper smoke test:
+Then use the independent buttons:
 
-```powershell
-helm upgrade --install vision-bench charts/vision-benchmark `
-  --set trainer.replicas=2 `
-  --set trainer.maxTrainSamples=4000 `
-  --set trainer.maxTestSamples=1000 `
-  --set trainer.epochs=1 `
-  --set image.repository=$env:ECR_REPO `
-  --set image.tag=latest
+- **Run EKS / Kubernetes GPU Benchmark** — 2 GPUs, then 4 GPUs, then auto-scale GPU workers to 0.
+- **Run SageMaker GPU Benchmark** — 2 GPU instances, then 4 GPU instances, Managed Spot.
+
+The UI displays live orchestration logs plus:
+
+- training time
+- images/second
+- validation accuracy
+- end-to-end/job time
+- estimated compute cost
+- 2→4 speedup
+- parallel efficiency
+
+## Cost target
+
+The project is tuned for a **short demo around $1 or less total** across both benchmark buttons:
+
+```text
+CIFAR-10 train subset: 5,000
+CIFAR-10 test subset:  1,000
+ResNet-18
+1 epoch
+
+EKS:       2 -> 4 x g4dn.xlarge Spot (NVIDIA T4)
+SageMaker: 2 -> 4 x ml.g4dn.xlarge Managed Spot (NVIDIA T4)
 ```
 
-## Why a small dataset is still useful
+The EKS script queries the current EC2 Spot price at run time for its UI estimate and falls back to `EKS_GPU_SPOT_FALLBACK_RATE` only if that lookup fails. SageMaker uses `SAGEMAKER_GPU_REFERENCE_RATE` only as a reference estimate; actual Managed Spot billing can be lower and should be verified in AWS Cost Explorer.
 
-For this project the research question is **systems performance**, not model quality. A small fixed dataset makes repeated 2-vs-4-node tests inexpensive and reveals something important: for tiny workloads, scaling can be worse because synchronization and startup overhead dominate. That is a legitimate benchmark result.
+The estimate is **not a spending guarantee** because provisioning time and Spot pricing vary. The important safeguards are: one epoch, small data subset, Managed Spot, EKS Spot, runtime caps, and automatic EKS GPU scale-down.
 
-The UI therefore separates:
+## Destroy AWS resources when finished
 
-1. **training-only time**
-2. **end-to-end job time**
-3. **throughput**
-4. **2 -> 4 worker speedup**
-5. **parallel efficiency** = speedup / 2
-6. **estimated cost**
-7. **cost per 1,000 training images**
+From CMD:
 
-## Safety rails
-
-- SageMaker `MaxRuntimeInSeconds=900`
-- EKS worker count is capped at 4 by Terraform validation
-- no NAT Gateway
-- no Kubernetes Service type LoadBalancer
-- all resources tagged `Project=vision-scale-bench`
-- `destroy.ps1` deletes Crossplane resources before destroying EKS
-
-## Results directory
-
-Example output:
-
-```json
-{
-  "platform": "eks",
-  "workers": 4,
-  "epochs": 2,
-  "train_samples": 8000,
-  "training_seconds": 83.1,
-  "images_per_second": 192.5,
-  "val_accuracy": 0.36
-}
+```cmd
+scripts\destroy.cmd
 ```
 
-Real numbers depend on AWS placement, image-pull time and instance availability.
+This removes the Crossplane-created S3/ECR resources and then runs Terraform destroy for EKS/VPC/IAM. Do not confuse this with `docker compose down`, which only stops the local UI/backend and does **not** stop AWS billing.
+
+## Repository structure
+
+```text
+vision-scale-bench/
+├── docker-compose.yml
+├── .env.example
+├── .dockerignore
+├── charts/vision-benchmark/       # Helm GPU workload
+├── crossplane/                    # S3 + ECR
+├── infra/terraform/               # VPC + EKS GPU nodes + IAM
+├── scripts/
+│   ├── setup.cmd
+│   ├── setup.sh
+│   ├── destroy.cmd
+│   ├── destroy.sh
+│   ├── run-eks-benchmark.sh
+│   └── run_sagemaker_benchmark.py
+├── training/                      # CUDA/PyTorch DDP + CIFAR-10
+├── results/
+└── ui/
+    ├── frontend/                  # React + Nginx
+    └── backend/                   # FastAPI orchestration API
+```
+
+## UI-driven setup and cleanup
+
+The local UI now controls the AWS lifecycle directly:
+
+- **Setup AWS Infrastructure** runs `scripts/setup.sh` in the backend container. It bootstraps Terraform/EKS/IAM, installs Crossplane, creates S3/ECR, builds and pushes the GPU training image, then scales the GPU node group back to zero.
+- **Destroy AWS Infrastructure** runs `scripts/destroy.sh` after a confirmation prompt. It removes the benchmark S3/ECR resources and executes `terraform destroy`.
+
+The `.cmd` scripts remain available only as recovery/fallback paths; normal use does not require them.

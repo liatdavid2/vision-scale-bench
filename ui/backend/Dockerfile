@@ -5,7 +5,7 @@ ARG KUBECTL_VERSION=v1.36.0
 ARG HELM_VERSION=v3.19.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates curl unzip git jq groff less \
+    bash ca-certificates curl unzip git jq groff less docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # AWS CLI v2

@@ -33,10 +33,11 @@ module "eks" {
     bench = {
       instance_types = var.instance_types
       capacity_type  = "SPOT"
-      min_size     = var.worker_count
-      max_size     = 4
-      desired_size = var.worker_count
-      disk_size    = 20
+      ami_type       = "AL2023_x86_64_NVIDIA"
+      min_size       = var.worker_count == 0 ? 0 : 1
+      max_size       = 4
+      desired_size   = var.worker_count
+      disk_size      = 30
       labels = { workload = "vision-bench" }
       tags = { Project = var.cluster_name }
     }

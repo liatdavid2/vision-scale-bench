@@ -12,10 +12,15 @@ services:
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-eu-central-1}
       AWS_REGION: ${AWS_REGION:-eu-central-1}
       EKS_CLUSTER_NAME: ${EKS_CLUSTER_NAME:-vision-scale-bench}
+      EKS_GPU_INSTANCE_TYPE: ${EKS_GPU_INSTANCE_TYPE:-g4dn.xlarge}
+      EKS_GPU_SPOT_FALLBACK_RATE: ${EKS_GPU_SPOT_FALLBACK_RATE:-0.30}
+      SAGEMAKER_GPU_REFERENCE_RATE: ${SAGEMAKER_GPU_REFERENCE_RATE:-0.7364}
     volumes:
       # Keeps Terraform state, result JSONs, generated .ecr_repo, and edits on the host.
       - ./:/workspace
       - kube-cache:/root/.kube
+      # Local-dev only: lets setup build/push the GPU training image via Docker Desktop.
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "7474:8000"
     restart: unless-stopped
