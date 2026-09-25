@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: ui/backend/Dockerfile
+    container_name: vision-scale-bench-backend
+    working_dir: /workspace
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-eu-central-1}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      EKS_CLUSTER_NAME: ${EKS_CLUSTER_NAME:-vision-scale-bench}
+    volumes:
+      # Keeps Terraform state, result JSONs, generated .ecr_repo, and edits on the host.
+      - ./:/workspace
+      - kube-cache:/root/.kube
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ui/frontend/Dockerfile
+    container_name: vision-scale-bench-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  kube-cache:

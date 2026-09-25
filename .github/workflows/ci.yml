@@ -1,0 +1,21 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Python syntax
+        run: python -m compileall training scripts ui/backend
+      - name: Terraform fmt
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+      - name: Helm lint
+        uses: azure/setup-helm@v4
+      - run: helm lint charts/vision-benchmark --set image.repository=example.invalid/vision
+
+      - name: React build
+        working-directory: ui/frontend
+        run: |
+          npm install
+          npm run build

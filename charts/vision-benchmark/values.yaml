@@ -1,0 +1,20 @@
+image:
+  repository: REPLACE_ME
+  tag: latest
+  pullPolicy: Always
+trainer:
+  replicas: 2
+  epochs: 2
+  batchSize: 64
+  maxTrainSamples: 8000
+  maxTestSamples: 2000
+  masterPort: 29500
+  nodeSelector:
+    workload: vision-bench
+  resources:
+    requests:
+      cpu: "1500m"
+      memory: "2500Mi"
+    limits:
+      cpu: "1800m"
+      memory: "3500Mi"

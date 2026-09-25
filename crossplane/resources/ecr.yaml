@@ -1,0 +1,14 @@
+apiVersion: ecr.aws.upbound.io/v1beta1
+kind: Repository
+metadata:
+  name: vision-scale-bench
+spec:
+  deletionPolicy: Delete
+  forProvider:
+    region: eu-central-1
+    forceDelete: true
+    imageScanningConfiguration:
+      scanOnPush: true
+    imageTagMutability: MUTABLE
+  providerConfigRef:
+    name: default

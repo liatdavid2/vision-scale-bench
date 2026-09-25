@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vision-trainer
+spec:
+  serviceName: vision-trainer
+  replicas: {{ .Values.trainer.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vision-trainer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vision-trainer
+    spec:
+      restartPolicy: Always
+      nodeSelector:
+{{ toYaml .Values.trainer.nodeSelector | indent 8 }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [vision-trainer]
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: trainer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: WORLD_SIZE
+              value: "{{ .Values.trainer.replicas }}"
+            - name: MASTER_ADDR
+              value: "vision-trainer-0.vision-trainer"
+            - name: MASTER_PORT
+              value: "{{ .Values.trainer.masterPort }}"
+            - name: PLATFORM
+              value: "eks"
+            - name: EPOCHS
+              value: "{{ .Values.trainer.epochs }}"
+            - name: BATCH_SIZE
+              value: "{{ .Values.trainer.batchSize }}"
+            - name: MAX_TRAIN_SAMPLES
+              value: "{{ .Values.trainer.maxTrainSamples }}"
+            - name: MAX_TEST_SAMPLES
+              value: "{{ .Values.trainer.maxTestSamples }}"
+          command: ["/bin/sh", "-lc"]
+          args:
+            - |
+              export NODE_RANK="${HOSTNAME##*-}"
+              python -m training.entrypoint
+              rc=$?
+              touch /tmp/done
+              sleep 3600
+              exit $rc
+          resources:
+{{ toYaml .Values.trainer.resources | indent 12 }}

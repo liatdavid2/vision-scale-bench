@@ -1,0 +1,6 @@
+apiVersion: v2
+name: vision-benchmark
+description: Small PyTorch DDP vision benchmark for 2/4 Kubernetes workers
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

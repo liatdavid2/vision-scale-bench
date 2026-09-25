@@ -1,0 +1,12 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+__pycache__/
+*.pyc
+.venv/
+results/*.json
+!results/.gitkeep
+.env
+ui/frontend/node_modules/
+ui/frontend/dist/

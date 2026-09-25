@@ -1,0 +1,12 @@
+apiVersion: s3.aws.upbound.io/v1beta1
+kind: Bucket
+metadata:
+  generateName: vision-scale-bench-results-
+spec:
+  deletionPolicy: Delete
+  forProvider:
+    region: eu-central-1
+    tags:
+      Project: vision-scale-bench
+  providerConfigRef:
+    name: default
